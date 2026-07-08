@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "api/slack/events.js": {
+      "maxDuration": 60
+    },
+    "api/slack/interactions.js": {
+      "maxDuration": 60
+    }
+  }
+}

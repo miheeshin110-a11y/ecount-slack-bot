@@ -1,0 +1,12 @@
+{
+  "name": "ecount-slack-bot-vercel",
+  "version": "1.0.0",
+  "description": "이카운트 재고조회 및 주문서 입력 슬랙봇 (Vercel 서버리스 / Events API 방식)",
+  "dependencies": {
+    "@slack/web-api": "^7.7.0",
+    "@anthropic-ai/sdk": "^0.39.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
