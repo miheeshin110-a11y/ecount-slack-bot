@@ -5,7 +5,8 @@
   "dependencies": {
     "@slack/web-api": "^7.7.0",
     "@anthropic-ai/sdk": "^0.39.0",
-    "@vercel/functions": "^1.5.0"
+    "@vercel/functions": "^1.5.0",
+    "undici": "^6.19.8"
   },
   "engines": {
     "node": ">=18"
