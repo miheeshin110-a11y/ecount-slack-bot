@@ -7,8 +7,48 @@ const { getProducts, getCustomers } = require("../../lib/ecount");
 const { parseIntent } = require("../../lib/claude");
 const { usageText, buildInventoryText, validateOrder, buildOrderConfirmBlocks } = require("../../lib/handlers");
 const { WebClient } = require("@slack/web-api");
+const { waitUntil } = require("@vercel/functions");
 
 const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
+
+// 실제 처리 로직 (재고조회/주문서/사용법 안내) - 응답을 이미 보낸 뒤 백그라운드로 실행됨
+async function processEvent(event, isMention) {
+  const text = event.text.replace(/<@[^>]+>/g, "").trim();
+  const channel = event.channel;
+  const thread_ts = isMention ? event.ts : undefined;
+
+  try {
+    if (!text) {
+      await slack.chat.postMessage({ channel, thread_ts, text: usageText() });
+      return;
+    }
+
+    const [products, customers] = await Promise.all([getProducts(), getCustomers()]);
+    const parsed = await parseIntent(text, products, customers);
+
+    if (parsed.intent === "inventory") {
+      const msg = await buildInventoryText(parsed);
+      await slack.chat.postMessage({ channel, thread_ts, text: msg });
+    } else if (parsed.intent === "order") {
+      const invalid = await validateOrder(parsed);
+      if (invalid) {
+        await slack.chat.postMessage({ channel, thread_ts, text: invalid.error });
+        return;
+      }
+      const confirm = await buildOrderConfirmBlocks(parsed, event.user);
+      await slack.chat.postMessage({ channel, thread_ts, text: confirm.text, blocks: confirm.blocks });
+    } else {
+      await slack.chat.postMessage({ channel, thread_ts, text: usageText() });
+    }
+  } catch (err) {
+    console.error(err);
+    await slack.chat.postMessage({
+      channel,
+      thread_ts,
+      text: `:warning: 처리 중 오류가 발생했어요.\n\`${err.message}\``,
+    });
+  }
+}
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -43,46 +83,11 @@ module.exports = async (req, res) => {
     event?.type === "message" && event?.channel_type === "im" && !event?.bot_id && !event?.subtype;
 
   if (payload.type === "event_callback" && (isMention || isDirectMessage)) {
-    // 먼저 200을 응답해 Slack의 3초 타임아웃 재전송을 막고, 이어서 실제 처리를 계속함
+    // 먼저 200을 응답해 Slack의 3초 타임아웃 재전송을 막음
     res.status(200).send("ok");
-
-    // 멘션이면 <@봇ID> 태그 제거, DM이면 텍스트 그대로
-    const text = event.text.replace(/<@[^>]+>/g, "").trim();
-    const channel = event.channel;
-    // 채널 멘션은 스레드로 답장, DM은 스레드 없이 바로 답장
-    const thread_ts = isMention ? event.ts : undefined;
-
-    try {
-      if (!text) {
-        await slack.chat.postMessage({ channel, thread_ts, text: usageText() });
-        return;
-      }
-
-      const [products, customers] = await Promise.all([getProducts(), getCustomers()]);
-      const parsed = await parseIntent(text, products, customers);
-
-      if (parsed.intent === "inventory") {
-        const msg = await buildInventoryText(parsed);
-        await slack.chat.postMessage({ channel, thread_ts, text: msg });
-      } else if (parsed.intent === "order") {
-        const invalid = await validateOrder(parsed);
-        if (invalid) {
-          await slack.chat.postMessage({ channel, thread_ts, text: invalid.error });
-          return;
-        }
-        const confirm = await buildOrderConfirmBlocks(parsed, event.user);
-        await slack.chat.postMessage({ channel, thread_ts, text: confirm.text, blocks: confirm.blocks });
-      } else {
-        await slack.chat.postMessage({ channel, thread_ts, text: usageText() });
-      }
-    } catch (err) {
-      console.error(err);
-      await slack.chat.postMessage({
-        channel,
-        thread_ts,
-        text: `:warning: 처리 중 오류가 발생했어요.\n\`${err.message}\``,
-      });
-    }
+    // Vercel Fluid compute 환경에서는 응답 후 코드가 실행 안 되고 종료될 수 있어
+    // waitUntil로 감싸서 응답 이후에도 끝까지 처리되도록 명시적으로 등록
+    waitUntil(processEvent(event, isMention));
     return;
   }
 
