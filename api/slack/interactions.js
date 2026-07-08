@@ -5,12 +5,11 @@
 const { verifySlackRequest } = require("../../lib/verify");
 const { saveSaleOrder } = require("../../lib/ecount");
 const { fmtQty } = require("../../lib/handlers");
-const { WebClient } = require("@slack/web-api");
+const { slack, getThreadUserText } = require("../../lib/threadContext");
+const { runQuery } = require("../../lib/threadFlow");
 const { waitUntil } = require("@vercel/functions");
 
-const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
-
-async function processAction(action, channel, ts) {
+async function processOrderAction(action, channel, ts) {
   try {
     if (action.action_id === "cancel_order") {
       await slack.chat.update({
@@ -67,6 +66,37 @@ async function processAction(action, channel, ts) {
   }
 }
 
+// 드롭다운에서 후보를 선택했을 때: 선택한 이름을 스레드 문맥에 이어붙여서 재해석
+async function processCandidateSelection(action, channel, message, userId) {
+  const selectedName = action.selected_option?.value;
+  if (!selectedName) return;
+
+  const thread_ts = message?.thread_ts || message?.ts;
+
+  try {
+    // 선택 완료 표시로 원래 드롭다운 메시지 업데이트
+    await slack.chat.update({
+      channel,
+      ts: message.ts,
+      text: `:white_check_mark: *${selectedName}* 선택함`,
+      blocks: [],
+    });
+
+    const priorText = await getThreadUserText(channel, thread_ts);
+    const combinedText = [priorText, selectedName].filter(Boolean).join("\n");
+    const result = await runQuery(combinedText, userId);
+
+    await slack.chat.postMessage({ channel, thread_ts, text: result.text, blocks: result.blocks });
+  } catch (err) {
+    console.error(err);
+    await slack.chat.postMessage({
+      channel,
+      thread_ts,
+      text: `:warning: 처리 중 오류가 발생했어요.\n\`${err.message}\``,
+    });
+  }
+}
+
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
     res.status(405).send("Method Not Allowed");
@@ -79,15 +109,20 @@ module.exports = async (req, res) => {
     return;
   }
 
-  // 버튼 클릭은 반드시 3초 내 200 응답 필요 → 먼저 ack
+  // 버튼/드롭다운 클릭은 반드시 3초 내 200 응답 필요 → 먼저 ack
   res.status(200).send("");
 
   const action = payload.actions?.[0];
   const channel = payload.channel?.id;
-  const ts = payload.message?.ts;
 
   if (!action) return;
 
-  // 응답 후에도 실제 이카운트 저장 처리가 끝까지 실행되도록 등록
-  waitUntil(processAction(action, channel, ts));
+  if (action.action_id === "select_candidate") {
+    waitUntil(processCandidateSelection(action, channel, payload.message, payload.user?.id));
+    return;
+  }
+
+  // confirm_order / cancel_order
+  const ts = payload.message?.ts;
+  waitUntil(processOrderAction(action, channel, ts));
 };
