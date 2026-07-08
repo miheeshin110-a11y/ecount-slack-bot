@@ -3,7 +3,8 @@
 // Slack Event Subscriptions 의 Request URL 로 등록
 // ============================================================
 const { verifySlackRequest } = require("../../lib/verify");
-const { getProducts, getCustomers } = require("../../lib/ecount");
+const { getProducts } = require("../../lib/ecount");
+const customers = require("../../lib/customers");
 const { parseIntent } = require("../../lib/claude");
 const { usageText, buildInventoryText, validateOrder, buildOrderConfirmBlocks } = require("../../lib/handlers");
 const { WebClient } = require("@slack/web-api");
@@ -23,7 +24,8 @@ async function processEvent(event, isMention) {
       return;
     }
 
-    const [products, customers] = await Promise.all([getProducts(), getCustomers()]);
+    // 거래처 목록은 이카운트에 조회 API가 없어서 lib/customers.js 로컬 파일에서 가져옴
+    const products = await getProducts();
     const parsed = await parseIntent(text, products, customers);
 
     if (parsed.intent === "inventory") {
