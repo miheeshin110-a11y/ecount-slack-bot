@@ -35,14 +35,22 @@ module.exports = async (req, res) => {
     return;
   }
 
-  if (payload.type === "event_callback" && payload.event?.type === "app_mention") {
+  const event = payload.event;
+
+  // app_mention(채널 멘션) 또는 message.im(DM) 둘 다 같은 방식으로 처리
+  const isMention = event?.type === "app_mention";
+  const isDirectMessage =
+    event?.type === "message" && event?.channel_type === "im" && !event?.bot_id && !event?.subtype;
+
+  if (payload.type === "event_callback" && (isMention || isDirectMessage)) {
     // 먼저 200을 응답해 Slack의 3초 타임아웃 재전송을 막고, 이어서 실제 처리를 계속함
     res.status(200).send("ok");
 
-    const event = payload.event;
+    // 멘션이면 <@봇ID> 태그 제거, DM이면 텍스트 그대로
     const text = event.text.replace(/<@[^>]+>/g, "").trim();
     const channel = event.channel;
-    const thread_ts = event.ts;
+    // 채널 멘션은 스레드로 답장, DM은 스레드 없이 바로 답장
+    const thread_ts = isMention ? event.ts : undefined;
 
     try {
       if (!text) {
