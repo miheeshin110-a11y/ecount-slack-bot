@@ -66,24 +66,27 @@ async function processOrderAction(action, channel, ts) {
   }
 }
 
-// 드롭다운에서 후보를 선택했을 때: 선택한 이름을 스레드 문맥에 이어붙여서 재해석
+// 드롭다운에서 후보를 선택했을 때: 선택한 코드를 스레드 문맥에 이어붙여서 재해석
+// (이름 대신 코드를 사용해서 괄호/띄어쓰기 차이로 인한 재매칭 실패를 방지)
 async function processCandidateSelection(action, channel, message, userId) {
-  const selectedName = action.selected_option?.value;
-  if (!selectedName) return;
+  const selectedCode = action.selected_option?.value;
+  if (!selectedCode) return;
 
   const thread_ts = message?.thread_ts || message?.ts;
 
   try {
-    // 선택 완료 표시로 원래 드롭다운 메시지 업데이트
+    // 확인 메시지엔 사람이 읽기 편한 이름을 보여줌 (드롭다운에 표시됐던 텍스트 그대로 재사용)
+    const displayLabel = action.selected_option?.text?.text || selectedCode;
     await slack.chat.update({
       channel,
       ts: message.ts,
-      text: `:white_check_mark: *${selectedName}* 선택함`,
+      text: `:white_check_mark: *${displayLabel}* 선택함`,
       blocks: [],
     });
 
     const priorText = await getThreadUserText(channel, thread_ts);
-    const combinedText = [priorText, selectedName].filter(Boolean).join("\n");
+    // 재해석에는 이름이 아니라 코드를 넘겨서, Claude가 재구성하며 생기는 표기 차이를 피함
+    const combinedText = [priorText, selectedCode].filter(Boolean).join("\n");
     const result = await runQuery(combinedText, userId);
 
     await slack.chat.postMessage({ channel, thread_ts, text: result.text, blocks: result.blocks });
