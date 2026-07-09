@@ -5,8 +5,8 @@
 const { verifySlackRequest } = require("../../lib/verify");
 const { saveSaleOrder } = require("../../lib/ecount");
 const { fmtQty } = require("../../lib/handlers");
-const { slack, getThreadUserText } = require("../../lib/threadContext");
-const { runQuery } = require("../../lib/threadFlow");
+const { slack, getThreadUserMessages } = require("../../lib/threadContext");
+const { runQueryWithHistory } = require("../../lib/threadFlow");
 const { waitUntil } = require("@vercel/functions");
 
 async function processOrderAction(action, channel, ts) {
@@ -84,10 +84,9 @@ async function processCandidateSelection(action, channel, message, userId) {
       blocks: [],
     });
 
-    const priorText = await getThreadUserText(channel, thread_ts);
-    // 재해석에는 이름이 아니라 코드를 넘겨서, Claude가 재구성하며 생기는 표기 차이를 피함
-    const combinedText = [priorText, selectedCode].filter(Boolean).join("\n");
-    const result = await runQuery(combinedText, userId);
+    const priorMessages = await getThreadUserMessages(channel, thread_ts);
+    const messages = [...priorMessages, selectedCode];
+    const result = await runQueryWithHistory(messages, userId);
 
     await slack.chat.postMessage({ channel, thread_ts, text: result.text, blocks: result.blocks });
   } catch (err) {

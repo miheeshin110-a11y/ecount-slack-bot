@@ -3,36 +3,37 @@
 // Slack Event Subscriptions 의 Request URL 로 등록
 // ============================================================
 const { verifySlackRequest } = require("../../lib/verify");
-const { slack, isBotThread, getThreadUserText } = require("../../lib/threadContext");
-const { runQuery } = require("../../lib/threadFlow");
+const { slack, isBotThread, getThreadUserMessages } = require("../../lib/threadContext");
+const { runQuery, runQueryWithHistory } = require("../../lib/threadFlow");
 const { waitUntil } = require("@vercel/functions");
 
 // 실제 처리 로직 - 응답을 이미 보낸 뒤 백그라운드로 실행됨
 async function processEvent(event, isMention, isChannelThreadReply) {
   const channel = event.channel;
-  let text;
-  let thread_ts;
-
-  if (isChannelThreadReply) {
-    thread_ts = event.thread_ts;
-    // 우리 봇이 시작한 스레드가 아니면 (다른 사람들끼리의 잡담 스레드) 조용히 무시
-    const ourThread = await isBotThread(channel, thread_ts);
-    if (!ourThread) return;
-    // 스레드 안의 사람 메시지들을 전부 합쳐서 하나의 요청으로 재해석
-    text = await getThreadUserText(channel, thread_ts);
-  } else {
-    text = event.text.replace(/<@[^>]+>/g, "").trim();
-    thread_ts = isMention ? event.ts : undefined;
-  }
 
   try {
-    const result = await runQuery(text, event.user);
-    await slack.chat.postMessage({ channel, thread_ts, text: result.text, blocks: result.blocks });
+    let result;
+
+    if (isChannelThreadReply) {
+      const thread_ts = event.thread_ts;
+      // 우리 봇이 시작한 스레드가 아니면 (다른 사람들끼리의 잡담 스레드) 조용히 무시
+      const ourThread = await isBotThread(channel, thread_ts);
+      if (!ourThread) return;
+
+      const messages = await getThreadUserMessages(channel, thread_ts);
+      result = await runQueryWithHistory(messages, event.user);
+      await slack.chat.postMessage({ channel, thread_ts, text: result.text, blocks: result.blocks });
+    } else {
+      const text = event.text.replace(/<@[^>]+>/g, "").trim();
+      const thread_ts = isMention ? event.ts : undefined;
+      result = await runQuery(text, event.user);
+      await slack.chat.postMessage({ channel, thread_ts, text: result.text, blocks: result.blocks });
+    }
   } catch (err) {
     console.error(err);
     await slack.chat.postMessage({
       channel,
-      thread_ts,
+      thread_ts: event.thread_ts || (isMention ? event.ts : undefined),
       text: `:warning: 처리 중 오류가 발생했어요.\n\`${err.message}\``,
     });
   }
