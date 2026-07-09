@@ -43,12 +43,17 @@ async function processOrderAction(action, channel, ts) {
           blocks: [],
         });
       } else {
+        // 응답 상세에 전표번호 등 식별정보가 있으면 슬랙 메시지에도 같이 보여줘서
+        // 매번 Vercel 로그를 안 찾아봐도 이카운트에서 바로 찾을 수 있게 함
+        const detailDump = result.details?.length
+          ? "\n```" + JSON.stringify(result.details, null, 2).slice(0, 800) + "```"
+          : "";
         await slack.chat.update({
           channel,
           ts,
           text: `:white_check_mark: 이카운트 주문서 등록 완료!\n거래처: *${order.cn}* / ${order.items
             .map((i) => `${i.n} × ${fmtQty(i.q)}`)
-            .join(", ")}\n요청자: <@${order.u}>`,
+            .join(", ")}\n요청자: <@${order.u}>${detailDump}`,
           blocks: [],
         });
       }
