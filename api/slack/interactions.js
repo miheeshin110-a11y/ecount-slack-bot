@@ -22,13 +22,14 @@ async function processOrderAction(action, channel, ts) {
     }
 
     if (action.action_id === "confirm_order") {
-      const order = JSON.parse(action.value); // { c, cn, items:[{p,n,q}], u }
+      const order = JSON.parse(action.value); // { c, cn, items:[{p,n,q}], u, d, r }
 
       const result = await saveSaleOrder({
         custCode: order.c,
         custName: order.cn,
+        deliveryDate: order.d,
+        remark: `${order.r} (Slack 발주, 요청자: <@${order.u}>)`,
         items: order.items.map((i) => ({ prodCd: i.p, qty: i.q })),
-        remark: `Slack 발주 (요청자: <@${order.u}>)`,
       });
 
       if (result.failCount > 0) {
@@ -53,7 +54,7 @@ async function processOrderAction(action, channel, ts) {
           ts,
           text: `:white_check_mark: 이카운트 주문서 등록 완료!\n거래처: *${order.cn}* / ${order.items
             .map((i) => `${i.n} × ${fmtQty(i.q)}`)
-            .join(", ")}\n요청자: <@${order.u}>${detailDump}`,
+            .join(", ")}\n납기일자: ${order.d || "-"} / 적요: ${order.r || "-"}\n요청자: <@${order.u}>${detailDump}`,
           blocks: [],
         });
       }
